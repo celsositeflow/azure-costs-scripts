@@ -19,8 +19,11 @@ results = []
 
 for sub in subs:
     sub_id = sub['id']
-    end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    start = end - timedelta(days=30)
+    today = datetime.now(UTC)
+    first_day_current_month = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    first_day_last_month = (first_day_current_month - timedelta(days=1)).replace(day=1)
+    start = first_day_last_month
+    end = first_day_current_month
     time_period = {
         "from": start.isoformat().replace("+00:00", "Z"),
         "to": end.isoformat().replace("+00:00", "Z")
@@ -32,20 +35,28 @@ for sub in subs:
         "dataset": {
             "granularity": "None",
             "aggregation": {"totalCost": {"name": "PreTaxCost", "function": "Sum"}},
-            "grouping": [{"type": "Dimension", "name": "ResourceGroupName"}]
+            "grouping": [
+                {"type": "Dimension", "name": "ResourceGroupName"},
+                {"type": "Dimension", "name": "ServiceFamily"}
+            ]
         }
     }
     cost_data = cost_client.query.usage(scope=f"/subscriptions/{sub_id}", parameters=query)
     for row in cost_data.rows:
-        # print(row)  # Uncomment to debug structure
         cost = row[0]
         rg_raw = row[1] if len(row) > 1 else None
-        rg = str(rg_raw).lower() if isinstance(rg_raw, str) else "unknown"
+        service_family = row[2] if len(row) > 2 else None
+        rg = str(rg_raw).lower() if isinstance(rg_raw, str) and rg_raw else ""
+        # If resource group is missing, use service family as type
+        if not rg:
+            type_value = service_family if service_family else "common"
+        else:
+            type_value = "production" if rg in prod_groups else "common"
         results.append({
             "subscription": sub['name'],
             "resource_group": rg,
             "cost": cost,
-            "type": "production" if rg in prod_groups else "common"
+            "type": type_value
         })
 
 # Save to CSV
